@@ -1,0 +1,96 @@
+class SuffixNode:
+    def __init__(self):
+        self.start = None
+        self.end = None
+        self.suffix_link = None
+        self.edges = {}
+
+class SuffixTree:
+    def __init__(self, string):
+        self.string = string
+        self.root = SuffixNode()
+        self.root.suffix_link = self.root
+        self.active_node = self.root
+        self.active_edge = 0
+        self.active_length = 0
+        self.remaining_suffixes = 0
+        self.global_end = -1
+
+        for i in range(len(string)):
+            self.extend_suffix_tree(i)
+
+    def get_edge_length(self, node, index):
+        edge = node.edges[self.string[index]]
+        return min(edge.end, self.global_end + 1) - edge.start
+
+    def walk_down(self, next_node):
+        if self.active_length >= self.get_edge_length(next_node, self.active_edge):
+            self.active_node = next_node
+            self.active_length -= self.get_edge_length(next_node, self.active_edge)
+            self.active_edge += self.get_edge_length(next_node, self.active_edge)
+            return True
+        return False
+
+    def extend_suffix_tree(self, index):
+        self.global_end = index
+        self.remaining_suffixes += 1
+        last_internal_node = None
+
+        while self.remaining_suffixes > 0:
+            if self.active_length == 0:
+                self.active_edge = index
+
+            if self.string[self.active_edge] not in self.active_node.edges:
+                self.active_node.edges[self.string[self.active_edge]] = SuffixNode()
+                if last_internal_node is not None:
+                    last_internal_node.suffix_link = self.active_node
+                    last_internal_node = None
+
+            next_node = self.active_node.edges[self.string[self.active_edge]]
+            if self.walk_down(next_node):
+                continue
+
+            if self.string[next_node.start + self.active_length] == self.string[index]:
+                if last_internal_node is not None and self.active_node != self.root:
+                    last_internal_node.suffix_link = self.active_node
+                    last_internal_node = None
+                self.active_length += 1
+                break
+
+            split_end = next_node.start + self.active_length - 1
+            split_node = SuffixNode()
+            split_node.start = next_node.start
+            split_node.end = split_end
+            next_node.start += self.active_length
+            split_node.edges[self.string[next_node.start]] = next_node
+            self.active_node.edges[self.string[self.active_edge]] = split_node
+
+            if last_internal_node is not None:
+                last_internal_node.suffix_link = split_node
+
+            last_internal_node = split_node
+
+            if self.active_node == self.root:
+                self.active_edge += 1
+            else:
+                self.active_node = self.active_node.suffix_link
+
+            self.remaining_suffixes -= 1
+
+        if last_internal_node is not None:
+            last_internal_node.suffix_link = self.active_node
+
+    def traverse_suffix_tree(self, node, depth=0):
+        for char, edge in node.edges.items():
+            print("  " * depth, self.string[edge.start:edge.end + 1])
+            self.traverse_suffix_tree(edge, depth + 1)
+
+    def get_longest_common_substring(self):
+        max_depth = 0
+        lcs_start = -1
+        for char, edge in self.root.edges.items():
+            depth = self.get_edge_length(self.root, edge.start)
+            if depth > max_depth:
+                max_depth = depth
+                lcs_start = edge.start
+        return self.string
