@@ -1,0 +1,107 @@
+class SuffixNode:
+    def __init__(self):
+        self.start = 0
+        self.end = -1
+        self.link = None
+        self.children = {}
+
+    def __repr__(self):
+        return f"SuffixNode(start={self.start}, end={self.end})"
+
+class ActiveState:
+    def __init__(self):
+        self.node = None
+        self.edge = -1
+        self.length = 0
+
+def add_suffix_link(node, link):
+    node.link = link
+
+def traverse(node, label, text):
+    if node.start <= node.end:
+        label += text[node.start: node.end + 1]
+
+    if len(node.children) == 0:
+        print(label)
+    else:
+        for child in node.children.values():
+            traverse(child, label, text)
+
+def update(active, remainder, global_end, text, root):
+    last_internal_node = None
+    while remainder > 0:
+        if active.length == 0:
+            active.edge = global_end
+
+        if text[active.edge] not in active.node.children:
+            new_node = SuffixNode()
+            new_node.start = global_end
+            new_node.end = float('inf')
+            active.node.children[text[active.edge]] = new_node
+
+            if last_internal_node:
+                add_suffix_link(last_internal_node, active.node)
+
+            last_internal_node = active.node
+        else:
+            next_node = active.node.children[text[active.edge]]
+            if walk_down(next_node, active, remainder, text):
+                continue
+
+            if text[next_node.start + active.length] == text[global_end]:
+                if last_internal_node:
+                    add_suffix_link(last_internal_node, active.node)
+                active.length += 1
+                break
+
+            split_node = SuffixNode()
+            split_node.start = next_node.start
+            split_node.end = next_node.start + active.length - 1
+            split_node.children[text[global_end]] = SuffixNode()
+            split_node.children[text[next_node.start + active.length]] = next_node
+
+            next_node.start += active.length
+            split_node.children[text[next_node.start]] = next_node
+
+            if last_internal_node:
+                add_suffix_link(last_internal_node, split_node)
+
+            last_internal_node = split_node
+
+        remainder -= 1
+        if active.node == root and active.length > 0:
+            active.length -= 1
+            active.edge = global_end - remainder + 1
+        else:
+            active.node = active.node.link if active.node.link else root
+
+def walk_down(node, active, remainder, text):
+    if active.length >= node.end - node.start:
+        active.edge += node.end - node.start
+        active.length -= node.end - node.start
+        active.node = node
+        return True
+
+    if text[node.start + active.length] == text[active.edge + active.length]:
+        active.length += 1
+        return True
+
+    return False
+
+def build_suffix_tree(text):
+    root = SuffixNode()
+    global_end = -1
+    active = ActiveState()
+    active.node = root
+
+    for i, char in enumerate(text):
+        global_end = i
+        update(active, i, global_end, text, root)
+        active.edge = i - active.length + 1
+        while active.node.link:
+            active.node = active.node.link
+            walk_down(active.node, active, i, text)
+
+    traverse(root, "", text)
+
+    return root
