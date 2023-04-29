@@ -1,0 +1,82 @@
+class Node:
+    def __init__(self, start, end):
+        self.children = {}
+        self.suffix_link = None
+        self.start = start
+        self.end = end
+        self.parent = None
+
+    def __repr__(self):
+        return "Node(start={}, end={}, edges={})".format(self.start, self.end, dict(sorted(self.children.items())))
+        #return "Node({}, {})".format(self.start, self.end)
+
+
+class SuffixTree:
+    def __init__(self, string):
+        self.string = string
+        self.root = Node(-1, -1)
+        self.root.suffix_link = self.root
+        self.active_node = self.root
+        self.active_edge = 0
+        self.active_length = 0
+        self.remaining_suffix_count = 0
+        self.last_new_node = None
+        self.end = -1
+        self.build_suffix_tree()
+
+    def __repr__(self):
+        return str(self.root)
+
+    def add_suffix_link(self, node):
+        if self.last_new_node is not None:
+            self.last_new_node.suffix_link = node
+        self.last_new_node = node
+
+    def walk_down(self, node):
+        if self.active_length >= self.edge_length(node):
+            self.active_edge += self.edge_length(node)
+            self.active_length -= self.edge_length(node)
+            self.active_node = node
+            return True
+        return False
+
+    def edge_length(self, node):
+        return min(node.end, self.end) - node.start + 1
+
+    def build_suffix_tree(self):
+        self.end = len(self.string) - 1
+        for i in range(self.end + 1):
+            self.remaining_suffix_count += 1
+            self.last_new_node = None
+            while self.remaining_suffix_count > 0:
+                if self.active_length == 0:
+                    self.active_edge = i
+                if self.string[self.active_edge] not in self.active_node.children:
+                    leaf_node = Node(i, self.end)
+                    self.active_node.children[self.string[self.active_edge]] = leaf_node
+                    self.add_suffix_link(self.active_node)
+                else:
+                    next_node = self.active_node.children[self.string[self.active_edge]]
+                    if self.walk_down(next_node):
+                        continue
+                    if self.string[next_node.start + self.active_length] == self.string[i]:
+                        self.active_length += 1
+                        self.add_suffix_link(self.active_node)
+                        break
+                    split_node = Node(next_node.start, next_node.start + self.active_length - 1)
+                    self.active_node.children[self.string[self.active_edge]] = split_node
+                    split_node.children[self.string[i]] = Node(i, self.end)
+                    next_node.start += self.active_length
+                    split_node.children[self.string[next_node.start]] = next_node
+                    self.add_suffix_link(split_node)
+                self.remaining_suffix_count -= 1
+                if self.active_node == self.root and self.active_length > 0:
+                    self.active_length -= 1
+                    self.active_edge = i - self.remaining_suffix_count + 1
+                else:
+                    self.active_node = self.active_node.suffix_link if self.active_node.suffix_link is not None else self.root
+
+
+text = "missisippi$"
+suffix_tree = SuffixTree(text)
+print(suffix_tree)
