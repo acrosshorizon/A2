@@ -1,100 +1,87 @@
 class Node:
-    def __init__(self, start=-1, end=-1):
+    def __init__(self, start=-1, end=-1, parent=None):
         self.start = start
         self.end = end
         self.suffixLink = None
-        self.childrenNode = {}
+        self.children = {}
+        self.parent = parent
+
+    def __repr__(self):
+        return "Node(start={}, end={}, edges={})".format(self.start, self.end, dict(sorted(self.children.items())))
+
 
 class SuffixTree:
-    def __init__(self, s):
+    def __init__(self, s: str):
         self.string = s
         self.root = Node()
         self.activeNode = self.root
-        self.activeLength = 0
-        self.globalEnd = -1
-        self.remainder = 0
-
-        self.lastJ = 0
+        self.suffixLink = self.root
         self.activeEdge = 0
+        self.activeLength = 0
+        self.remainder = 0
+        self.globalEnd = -1
+        self.lastInternalNode = None
+        self.suffixArray = []
+        self.constructSuffixTree()
 
-    def build(self):
-        n = len(self.string)
-        for i in range(n):
-            self.globalEnd = i
+    def constructSuffixTree(self):
+        for i in range(len(self.string)):
+            # increase remainder, global end for every index of string
+            self.globalEnd += 1
             self.remainder += 1
-            self.lastJ = 0
-
+            self.lastInternalNode = None
             while self.remainder > 0:
                 if self.activeLength == 0:
                     self.activeEdge = i
-
-                if self.string[self.activeEdge] not in self.activeNode.childrenNode:
-                    self.activeNode.childrenNode[self.string[self.activeEdge]] = Node(i, float('inf'))
-
-                    self.makeSuffixLink(self.activeNode)
-
+                # Create leaf node if there is no branch starting with char at index i
+                if self.string[self.activeEdge] not in self.activeNode.children:
+                    self.activeNode.children[self.string[self.activeEdge]] = Node(i, self.globalEnd)
+                    self.createSuffixLink(self.activeNode)
+                # Split the branch if exist a branch starting with char at index i
                 else:
-                    nextNode = self.activeNode.childrenNode[self.string[self.activeEdge]]
-                    if self.walkDown(nextNode):
+                    newNode = self.activeNode.children[self.string[self.activeEdge]]
+                    if self.walkDown(newNode):
                         continue
-
-                    if self.string[nextNode.start + self.activeLength] == self.string[i]:
+                    if self.string[newNode.start + self.activeLength] == self.string[i]:
+                        self.createSuffixLink(self.activeNode)
                         self.activeLength += 1
-                        self.makeSuffixLink(self.activeNode)
                         break
-
-                    splitEnd = nextNode.start + self.activeLength - 1
-
-                    splitNode = Node(nextNode.start, splitEnd)
-                    self.activeNode.childrenNode[self.string[self.activeEdge]] = splitNode
-
-                    splitNode.childrenNode[self.string[i]] = Node(i, float('inf'))
-                    nextNode.start += self.activeLength
-                    splitNode.childrenNode[self.string[nextNode.start]] = nextNode
-
-                    self.makeSuffixLink(splitNode)
-
+                    splitNode = Node(newNode.start, newNode.start + self.activeLength - 1)
+                    self.activeNode.children[self.string[self.activeEdge]] = splitNode
+                    splitNode.children[self.string[i]] = Node(i, self.globalEnd)
+                    newNode.start += self.activeLength
+                    splitNode.children[self.string[newNode.start]] = newNode
+                    self.createSuffixLink(splitNode)
                 self.remainder -= 1
-
                 if self.activeNode == self.root and self.activeLength > 0:
                     self.activeLength -= 1
                     self.activeEdge = i - self.remainder + 1
                 else:
-                    self.activeNode = self.activeNode.suffixLink if self.activeNode.suffixLink else self.root
+                    #self.activeNode = self.activeNode.suffixLink if self.activeNode.suffixLink is not None else self.root
 
-            self.lastJ = i + 1
+                    if self.activeNode.suffixLink is not None:
+                        self.activeNode = self.activeNode.suffixLink
+                    else:
+                        self.activeNode = self.root
 
-    def walkDown(self, nextNode):
-        if self.activeLength >= nextNode.end - nextNode.start:
-            self.activeEdge += nextNode.end - nextNode.start
-            self.activeLength -= nextNode.end - nextNode.start
-            self.activeNode = nextNode
+    def createSuffixLink(self, node: Node):
+        if self.lastInternalNode is not None:
+            self.lastInternalNode.suffixLink = node
+        self.lastInternalNode = node
+
+    def walkDown(self, node: Node):
+        edgeLength = min(node.end, self.globalEnd) - node.start + 1
+        if self.activeLength >= edgeLength:
+            self.activeLength -= edgeLength
+            self.activeEdge += edgeLength
+            self.activeNode = node
             return True
         return False
 
-    def makeSuffixLink(self, node):
-        if self.activeNode != self.root:
-            self.activeNode.suffixLink = node
-        self.activeNode = node
+    def __repr__(self):
+        return str(self.root)
 
-    def traverse(self):
-        while self.activeLength > 0:
-            if self.activeNode.childrenNode.get(self.string[self.activeEdge]):
-                break
-            self.activeNode = self.activeNode.suffixLink if self.activeNode.suffixLink else self.root
-        else:
-            return
 
-        nextNode = self.activeNode.childrenNode[self.string[self.activeEdge]]
-
-        if self.activeLength >= nextNode.end - nextNode.start:
-            self.activeEdge += nextNode.end - nextNode.start
-            self.activeLength -= nextNode.end - nextNode.start
-            self.activeNode = nextNode
-            self.traverse()
-
-    def makeExtension(self):
-        if self.activeNode.childrenNode.get(self.string[self.activeEdge]):
-            return
-
-        self.activeNode.childrenNode[self.string[self.activeEdge
+text = "missisippi$"
+suffix_tree = SuffixTree(text)
+print(suffix_tree)
