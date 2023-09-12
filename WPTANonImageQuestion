@@ -1,0 +1,303 @@
+import {
+	Box,
+	FormControl,
+	FormControlLabel,
+	FormHelperText,
+	FormLabel,
+	Input,
+	MenuItem,
+	Radio,
+	RadioGroup,
+	Select,
+	SelectChangeEvent,
+	Switch
+} from '@mui/material';
+import { styled } from '@mui/material/styles';
+import { DatePicker, DateValidationError, LocalizationProvider } from '@mui/x-date-pickers';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import { PickerChangeHandlerContext } from '@mui/x-date-pickers/internals/hooks/usePicker/usePickerValue.types';
+import React, { ChangeEvent, useEffect, useState } from 'react';
+import { PatientData } from '../../../@types/custom/Patient';
+import {
+	QuestionInputType,
+	WPTASNonImageQuestion as WPTASNonImageQuestionType,
+	multipleChoiceAnswerPosition
+} from '../../../@types/custom/WPTAS';
+import { dayjs } from '../../../utility/dayjs';
+import { useRosetty } from 'rosetty-react';
+import { LanguageDict } from '../../../@types/custom/i18n';
+
+const QuestionLabel = styled(FormLabel)(() => ({
+	marginBottom: '0.5rem',
+	fontWeight: 500
+}));
+
+const Question = styled(Box)(() => ({
+	'&>*:not(:last-child)': { marginBottom: '0.5rem' },
+	position: 'relative'
+}));
+
+const MultiChoiceRadioGroup = styled(RadioGroup)(() => ({
+	'&>*:not(:last-child)': { marginBottom: '1rem' }
+}));
+
+const SwitchStyled = styled(Box)(() => ({
+	flexGrow: 0,
+	flexShrink: 0,
+	display: 'flex',
+	justifyContent: 'flex-end'
+}));
+
+const CorrectAnswer = styled('div')(() => ({
+	fontWeight: 500
+}));
+
+const AnsweredCorrectlyRadioGroupFormControl = styled(FormControl)(() => ({
+	marginBottom: '1rem'
+}));
+
+const Title = styled(Box)(() => ({
+	flexGrow: 1,
+	flexShrink: 0
+}));
+
+const HeaderStyled = styled(Box)(() => ({
+	display: 'flex',
+	flexDirection: 'row',
+	['@media only screen and (max-width:600px)']: {
+		flexDirection: 'column'
+	}
+}));
+
+export const WPTASNonImageQuestion = ({
+	data,
+	question,
+	correctAnswerPositionOverride,
+	setQuestionMultiChoiceGiven,
+	setQuestionCorrect,
+	getResponseOnChange,
+	showCorrectAnswer,
+	comment, // Add this line
+  	onCommentChange, // Add this line
+	error_
+}: {
+	data: PatientData;
+	question: WPTASNonImageQuestionType;
+	correctAnswerPositionOverride?: multipleChoiceAnswerPosition;
+	setQuestionMultiChoiceGiven: (q_index: number | Array<number> | Array<number>, val: boolean) => void;
+	setQuestionCorrect: (questoinNum: number, val: boolean) => void;
+	getResponseOnChange: (q_index: number) => (event: ChangeEvent<HTMLInputElement> | string) => void;
+	showCorrectAnswer: boolean;
+	comment: string; // Add this line
+  	onCommentChange: (comment: string) => void; // Add this line
+	error_: boolean;
+}) => {
+	// State for multiple choice mode
+	const [isMultiChoice, setIsMultiChoice] = useState(false);
+
+	// State for 'answered correctly?' question
+	const [answeredCorrectly, setAnsweredCorrectly] = useState<string | null>(null);
+	const answeredCorrectlyChanged = (event: React.ChangeEvent<HTMLInputElement>) => {
+		setAnsweredCorrectly((event.target as HTMLInputElement).value);
+		setQuestionCorrect(question.questionNum, event.target.value === 'yes');
+	};
+	const [multiChoiceAnswers, setMultiChoiceAnswers] = useState<string[] | null>(null);
+	const correctAnswer = question.correctAnswerGenerator(data);
+
+	const { t } = useRosetty<LanguageDict>();
+
+	useEffect(
+		() => {
+			setMultiChoiceAnswers(question.multichoiceGenerator(correctAnswer, correctAnswerPositionOverride))
+		},
+		[]
+	);
+
+	return (
+		<Question id={'question' + question.questionNum} display='flex' flexDirection='column' alignItems='stretch'>
+			<HeaderStyled>
+				<Title>
+					<h3 style={{ fontSize: '18px' }}>{`${question.questionNum}. ${question.title}`}</h3>
+				</Title>
+				<SwitchStyled display='flex' alignItems='center'>
+					<span style={{ fontSize: '11px' }}>{t('screen.tests.wptas.question.multipleChoice.label')}</span>
+					<Switch
+						color='primary'
+						checked={isMultiChoice}
+						onChange={e => {
+							setIsMultiChoice(e.target.checked);
+							setQuestionMultiChoiceGiven(question.questionNum, e.target.checked);
+						}}
+					/>
+				</SwitchStyled>
+			</HeaderStyled>
+			<FormControl component='fieldset' fullWidth error={error_}>
+				{isMultiChoice ? (
+					<WPTASMultiChoiceQuestion
+						choices={multiChoiceAnswers ?? []}
+						onChangeResponse={getResponseOnChange(question.questionNum)}
+						setQuestionCorrect={(correct: boolean) => setQuestionCorrect(question.questionNum, correct)}
+						correctAnswer={correctAnswer}
+					/>
+				) : (
+					<WPTASDefaultQuestion
+						onChangeResponse={getResponseOnChange(question.questionNum)}
+						answeredCorrectly={answeredCorrectly}
+						answeredCorrectlyChanged={answeredCorrectlyChanged}
+						question={question}
+					/>
+				)}
+				{error_ ? <FormHelperText>{t('error.mandatory.required', { str: 'question' })}</FormHelperText> : null}
+			</FormControl>
+			<CorrectAnswer style={{ visibility: showCorrectAnswer ? 'visible' : 'hidden' }}>
+				{t('screen.tests.wptas.answer.correct')} {question.correctAnswerGenerator(data)}
+			</CorrectAnswer>
+		</Question>
+	);
+};
+
+const WPTASDefaultQuestion = ({
+	answeredCorrectly,
+	onChangeResponse,
+	answeredCorrectlyChanged,
+	question
+}: {
+	answeredCorrectly: string | null;
+	onChangeResponse: (event: ChangeEvent<HTMLInputElement> | string) => void;
+	answeredCorrectlyChanged: (event: React.ChangeEvent<HTMLInputElement>) => void;
+	question: WPTASNonImageQuestionType;
+}) => {
+	const { t } = useRosetty<LanguageDict>();
+
+	return <>
+		<AnsweredCorrectlyRadioGroupFormControl>
+			<QuestionLabel>{t('screen.tests.wptas.answer.answeredCorrectly')}</QuestionLabel>
+			<RadioGroup
+				row
+				aria-label='answered correctly?'
+				value={answeredCorrectly}
+				onChange={answeredCorrectlyChanged}
+			>
+				<Box flexGrow='1' display='flex' flexDirection='row'>
+					<Box flex='1 1 50%'>
+						<FormControlLabel
+							value='yes'
+							control={<Radio color='primary' />}
+							label={t('screen.tests.wptas.answer.yes')}
+						/>
+					</Box>
+					<Box flex='1 1 50%'>
+						<FormControlLabel
+							value='no'
+							control={<Radio color='primary' />}
+							label={t('screen.tests.wptas.answer.no')}
+						/>
+					</Box>
+				</Box>
+			</RadioGroup>
+		</AnsweredCorrectlyRadioGroupFormControl>
+		<PatientResponseInput
+			onChangeResponse={onChangeResponse}
+			type={question.questionType}
+			choices={'choices' in question ? question.choices : []}
+		/>
+	</>
+};
+
+const WPTASMultiChoiceQuestion = ({
+	choices,
+	onChangeResponse,
+	setQuestionCorrect,
+	correctAnswer
+}: {
+	choices: Array<string | number>;
+	onChangeResponse: (event: ChangeEvent<HTMLInputElement>) => void;
+	setQuestionCorrect: (correct: boolean) => void;
+	correctAnswer: string;
+}) => {
+	const [selectedMultiChoice, setSelectedMultiChoice] = useState('');
+	return (
+		<MultiChoiceRadioGroup
+			aria-label='multiple choice'
+			value={selectedMultiChoice}
+			onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+				setSelectedMultiChoice(event.target.value);
+				onChangeResponse(event);
+				setQuestionCorrect(event.target.value === correctAnswer);
+			}}
+		>
+			{choices.map(choice => (
+				<FormControlLabel key={choice} value={choice} control={<Radio color='primary' />} label={choice} />
+			))}
+		</MultiChoiceRadioGroup>
+	);
+};
+
+const PatientResponseInput = ({
+	type,
+	choices,
+	onChangeResponse
+}: {
+	type: QuestionInputType;
+	choices: Array<string | number>;
+	onChangeResponse: (event: ChangeEvent<HTMLInputElement> | string) => void;
+}) => {
+	const { t } = useRosetty<LanguageDict>();
+
+	let label = <QuestionLabel id='response-label'>{t('screen.tests.wptas.patientResponse')}</QuestionLabel>;
+	const [response, setResponse] = useState(type === 'select' ? '' : type === 'date' ? null : null);
+	const onDateResponse = (
+		date: dayjs.Dayjs | string | null,
+		_context: PickerChangeHandlerContext<DateValidationError>
+	) => {
+		// returns instantly when event is null (on init)
+		if (date === null) return;
+		date = date as dayjs.Dayjs;
+		setResponse(date.toDate().toDateString());
+		onChangeResponse(date.toDate().toDateString());
+	};
+	const onSelectResponse = (event: SelectChangeEvent<string | null>) => {
+		setResponse(event.target.value);
+		onChangeResponse(event as ChangeEvent<HTMLInputElement>);
+	};
+
+	const dateFormat = 'DD/MM/YYYY';
+	switch (type) {
+		case 'text':
+			return (
+				<FormControl style={{ maxWidth: '600px' }}>
+					{label}
+					<Input onChange={(event: ChangeEvent<HTMLInputElement>) => onChangeResponse(event)} />
+				</FormControl>
+			);
+		case 'date':
+			return (
+				<FormControl style={{ maxWidth: '300px' }}>
+					{label}
+					<LocalizationProvider dateAdapter={AdapterDayjs}>
+						<DatePicker
+							format={dateFormat}
+							value={response}
+							onChange={onDateResponse}
+							label={t('form.input.date.select')}
+						/>
+					</LocalizationProvider>
+				</FormControl>
+			);
+		case 'select':
+			return (
+				<FormControl style={{ maxWidth: '300px' }}>
+					{label}
+					<Select labelId='response-label' value={response as string} onChange={onSelectResponse}>
+						{choices.map(choice => (
+							<MenuItem key={choice} value={choice}>
+								{choice}
+							</MenuItem>
+						))}
+					</Select>
+				</FormControl>
+			);
+		default:
+			return <div></div>;
+	}
+};
