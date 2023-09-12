@@ -1,0 +1,535 @@
+import { Box, Button, CircularProgress, FormHelperText, Grid, Switch, TextField, Typography } from '@mui/material';
+import React, { ChangeEvent, useState } from 'react';
+import { wptas_image_sequence } from '../../../data/wptas_image_sequence';
+import { face_images, photo_question_images } from '../../../data/wptas_images';
+import { questions } from '../../../data/wptas_questions';
+
+import { Location } from 'react-router-dom';
+
+import { styled } from '@mui/material/styles';
+import { useRosetty } from 'rosetty-react';
+import { InputErrors } from '../../../@types/custom/Errors';
+import { multipleChoiceAnswerPositionArray } from '../../../@types/custom/WPTAS';
+import { LanguageDict } from '../../../@types/custom/i18n';
+import { fakeAxiosPost } from '../../../services/FakedAxiosDB';
+import { generateChunks } from '../../../utility/utility';
+import { ButtonFill } from '../../common/Buttons';
+
+import { WPTASQuestion as WPTASQuestionType, multipleChoiceAnswerPosition } from '../../../@types/custom/WPTAS';
+import { WPTASFaceQuestion } from './WPTASFaceQuestion';
+import { WPTASNonImageQuestion } from './WPTASNonImageQuestion';
+import { WPTASPictureQuestion } from './WPTASPictureQuestion';
+import { PatientData } from '../../../@types/custom/Patient';
+
+const QuestionsContainerBox = styled(Box)(() => ({
+	'&>*': { marginBottom: '1.5rem' }
+}));
+
+const QuestionsContainerGrid = styled(Grid)(() => ({
+	'&>*': { marginBottom: '1.5rem' }
+}));
+
+const SuccessfulSubmit = styled('div')(() => ({
+	marginTop: '1rem',
+	fontSize: '16px'
+}));
+
+const Score = styled(Box)(() => ({
+	fontSize: '37px',
+	marginTop: '20px'
+}));
+
+const SummaryTitle = styled(Box)(() => ({
+	fontSize: '16px',
+	marginTop: '50px'
+}));
+
+const SummaryBox = styled(Box)(() => ({
+	fontSize: '16px',
+	marginTop: '20px',
+	display: 'flex',
+	flexDirection: 'column'
+}));
+
+const SummaryText = styled(Typography)(() => ({
+	fontSize: '16px',
+	marginTop: '17px'
+}));
+
+const SummaryFace = styled(Box)(() => ({
+	marginTop: '10px',
+	marginRight: '30px',
+	justifyContent: 'center',
+	alignItems: 'center',
+	display: 'flex'
+}));
+
+const SummaryFaceText = styled(Typography)(() => ({
+	marginLeft: '30px',
+	fontSize: '30px'
+}));
+
+const NextImages = styled(Box)(() => ({
+	marginTop: '25px',
+	display: 'flex',
+	justifyContent: 'space-around'
+}));
+
+const NextImagesWrapper = styled(Box)(() => ({
+	height: '290px'
+}));
+
+const NextImagesWrappedImage = styled('img')(() => ({
+	height: '290px'
+}));
+
+const GridButton = styled(Button)(({ theme }) => ({
+	backgroundColor: theme.palette.primary.main,
+	color: theme.palette.primary.contrastText,
+	width: '300px',
+	marginTop: '2rem',
+	marginBottom: '2rem'
+}));
+
+const ImageWrapper = styled(Grid)(() => ({
+	display: 'flex',
+	width: '590px',
+	justifyContent: 'space-between'
+}));
+
+const ObjectsImages = styled('img')(() => ({
+	display: 'flex',
+	height: '200px',
+	width: 'auto'
+}));
+
+const CorrectAnswerBtn = styled(Button)(({ theme }) => ({
+	position: 'fixed',
+	padding: '1rem',
+	color: theme.palette.primary.contrastText,
+	bottom: '1rem',
+	right: '1rem',
+	textTransform: 'none',
+	zIndex: 10,
+	backgroundColor: theme.palette.primary.main,
+	borderRadius: '100px',
+	'&:hover': {
+		backgroundColor: theme.palette.primary.dark
+	}
+}));
+
+interface GenericState<Type> {
+	value: Type;
+	setValue: React.Dispatch<React.SetStateAction<Type>>;
+}
+
+export const WPTASQuestion = ({
+	data,
+	question,
+	showCorrectAnswer,
+	correctAnswerPositionOverride,
+	comment,
+	onCommentChange,
+	...rest
+  }: {
+	data: PatientData;
+	question: WPTASQuestionType;
+	correctAnswerPositionOverride?: multipleChoiceAnswerPosition;
+	showCorrectAnswer: boolean;
+	setQuestionMultiChoiceGiven: (q_index: number | Array<number>, val: boolean) => void;
+	setQuestionCorrect: (questionNum: number | Array<number>, val: boolean | Array<boolean>) => void;
+	getResponseOnChange: (q_index: number) => (event: ChangeEvent<HTMLInputElement> | string) => void;
+	error_: boolean;
+	comment: string; // Add this line
+	onCommentChange: (comment: string) => void;
+  }) => {
+	switch (question.questionType) {
+	  case 'face_question':
+		return <WPTASFaceQuestion data={data} question={question} {...rest} />;
+	  case 'pictures_question':
+		return <WPTASPictureQuestion data={data} question={question} {...rest} />;
+	  default:
+		return (
+		  <WPTASNonImageQuestion
+			data={data}
+			showCorrectAnswer={showCorrectAnswer}
+			correctAnswerPositionOverride={correctAnswerPositionOverride}
+			question={question}
+			comment={comment} // Pass the comment here
+			onCommentChange={onCommentChange} // Pass the onCommentChange function here
+			{...rest}
+		  />
+		);
+	}
+  };
+  
+
+export function getWPTASCompletedForm(
+	location: Location,
+	id: string,
+	wptasComplete: boolean,
+	score: number,
+	currentTime: Date,
+	nextSequence: string[],
+	allCorrect: boolean,
+	gridState: GenericState<boolean>
+) {
+	const { value: showGrid, setValue: setShowGrid } = gridState;
+	const { t } = useRosetty<LanguageDict>();
+	const [imageOverride] = useState<string[]>([]);
+
+	//Add the comment section block
+	const [comments, setComments] = useState<string[]>(new Array(questions.length).fill(''));
+
+	function handleCommentChange(index: number, comment: string) {
+		const updatedComments = [...comments];
+		updatedComments[index] = comment;
+		setComments(updatedComments);
+	}
+
+	function handleOverrideSubmit(imageOverride: string[], id: string) {
+		// parses the triple image override to find its index in the pseudo random sequence
+		let currentImagesIndex = 0;
+		if (imageOverride.length === 3) {
+			var sortedImages = imageOverride.sort(); // sequences are kept in alphabetical order
+			var foundFlag = false;
+			// loop through sequence
+			while (!foundFlag) {
+				if (JSON.stringify(wptas_image_sequence[currentImagesIndex]) === JSON.stringify(sortedImages)) {
+					foundFlag = true;
+					// exit condition for reaching the end of the sequences without finding anything
+				} else if (currentImagesIndex === 83) {
+					alert('ERROR: could not find sequence, index set to 0');
+					currentImagesIndex = 0;
+					break;
+				} else {
+					currentImagesIndex++;
+				}
+			}
+		} else {
+			alert(t('screen.tests.wptas.question.image.select3'));
+			return;
+		}
+		// collect patient data
+		const patientData: any = {
+			// how can we fix this any?
+			patientId: id,
+			currentImagesIndex: currentImagesIndex
+		};
+		// posts new data to the database
+		fakeAxiosPost(
+			// axios
+			// .post('https://3xqbiqvcv0.execute-api.ap-southeast-2.amazonaws.com/default/PTA-DynamoDB-Compute',
+			{
+				callingFunction: 'imageOverrideSubmit',
+				data: patientData
+			}
+		).then(
+			// if else for resolution/error of API call
+			() => {}, // resolved
+			console.log // failed
+		);
+		// setTimeout(() => navigate(`/${id}`, { replace: false }), 750);
+	}
+
+	// function to handle change in triple image answer
+	function onClickImage(event: React.MouseEvent<HTMLImageElement>) {
+		let target = event.target as HTMLImageElement;
+		// checks if the image override array contains the current picture
+		if (imageOverride.includes(target.id)) {
+			// removes outline from CSS and picture from array
+			target.style.outline = '5px none #5C88F6';
+			var index = imageOverride.indexOf(target.id);
+			if (index !== -1) {
+				imageOverride.splice(index, 1);
+			}
+			// does nothing if array already has 3 images
+		} else if (imageOverride.length < 3) {
+			// else add outline to CSS and picture to array
+			target.style.outline = '5px solid #5C88F6';
+			imageOverride.push(target.id);
+		}
+	}
+
+	return (
+		<SuccessfulSubmit>
+			{location.state['summary'] ? (
+				<Box />
+			) : (
+				<Box>
+					{t('form.input.button.submit.success')}
+					{wptasComplete ? <Score>{t('screen.tests.wptas.completed')}</Score> : <Box />}
+					<Score>
+						{t('screen.tests.wptas.score')} {score}
+					</Score>
+				</Box>
+			)}
+			<SummaryTitle id='successfulSubmitText'>
+				<h2>{t('screen.tests.wptas.question.summary')}</h2>
+			</SummaryTitle>
+			<SummaryBox>
+				<SummaryText>
+					{t('screen.tests.wptas.question.age')}{' '}
+					<b>{questions[0].correctAnswerGenerator(location.state['data'])}</b>
+				</SummaryText>
+				<SummaryText>
+					{t('screen.tests.wptas.question.birthday')}{' '}
+					<b>{questions[1].correctAnswerGenerator(location.state['data'])}</b>
+				</SummaryText>
+				<SummaryText>
+					{t('screen.tests.wptas.question.month')}{' '}
+					<b>{questions[2].correctAnswerGenerator(location.state['data'])}</b>
+				</SummaryText>
+				<SummaryText>
+					{t('screen.tests.wptas.question.time')}{' '}
+					<b>{questions[3].correctAnswerGenerator(location.state['data'])}</b> (
+					{currentTime.toLocaleTimeString('en-US')})
+				</SummaryText>
+				<SummaryText>
+					{t('screen.tests.wptas.question.day')}{' '}
+					<b>{questions[4].correctAnswerGenerator(location.state['data'])}</b>
+				</SummaryText>
+				<SummaryText>
+					{t('screen.tests.wptas.question.year')}{' '}
+					<b>{questions[5].correctAnswerGenerator(location.state['data'])}</b>
+				</SummaryText>
+				<SummaryText>
+					{t('screen.tests.wptas.question.location')}{' '}
+					<b>{questions[6].correctAnswerGenerator(location.state['data'])}</b>{' '}
+					{t('screen.tests.wptas.question.reason')}
+				</SummaryText>
+				<SummaryText>{t('screen.tests.wptas.question.remember.person')}</SummaryText>
+				<SummaryFace>
+					<img src={face_images[location.state['data']['therapist']]} alt=''></img>
+					<SummaryFaceText>{questions[8].correctAnswerGenerator(location.state['data'])}</SummaryFaceText>
+				</SummaryFace>
+				<SummaryText>{t('screen.tests.wptas.question.remember.images')}</SummaryText>
+				<NextImages id='nextImages'>
+					{allCorrect
+						? nextSequence.map(img_name => (
+								<NextImagesWrapper key={img_name}>
+									<NextImagesWrappedImage
+										src={photo_question_images[img_name]}
+										alt=''
+										draggable={false}
+									></NextImagesWrappedImage>
+								</NextImagesWrapper>
+						  ))
+						: wptas_image_sequence[location.state['data']['currentImagesIndex']].map(img_name => (
+								<NextImagesWrapper key={img_name}>
+									<NextImagesWrappedImage
+										src={photo_question_images[img_name]}
+										alt=''
+										draggable={false}
+									></NextImagesWrappedImage>
+								</NextImagesWrapper>
+						  ))}
+				</NextImages>
+				<GridButton color='primary' variant='contained' onClick={() => setShowGrid(!showGrid)}>
+					{showGrid
+						? t('screen.tests.wptas.question.image.showHideImagesGrid', { state: 'Hide' })
+						: t('screen.tests.wptas.question.image.showHideImagesGrid', { state: 'Show' })}
+				</GridButton>
+				{showGrid ? (
+					<Box>
+						<QuestionsContainerGrid container direction='column'>
+							<SummaryText>
+								<b>{t('screen.tests.wptas.question.image.override', { currentAnswer: true })}</b>
+							</SummaryText>
+
+							{generateChunks(Object.entries(photo_question_images), 3).map(chunk => (
+								<ImageWrapper
+									container
+									key={chunk[0][0] + ' row'}
+									direction='row'
+									alignItems='center'
+									justifyContent='center'
+									spacing={0}
+								>
+									{chunk.map(([name, src]) => (
+										<ObjectsImages
+											id={name}
+											key={name + ' item'}
+											src={src}
+											onClick={onClickImage}
+											alt=''
+											draggable={false}
+										/>
+									))}
+								</ImageWrapper>
+							))}
+						</QuestionsContainerGrid>
+						<GridButton
+							color='primary'
+							variant='contained'
+							onClick={() => {
+								if (window.confirm(t('form.input.button.submit.confirm')))
+									handleOverrideSubmit(imageOverride, id);
+							}}
+						>
+							{t('screen.tests.wptas.question.image.override', { currentAnswer: false })}
+						</GridButton>
+					</Box>
+				) : (
+					<Box></Box>
+				)}
+			</SummaryBox>
+		</SuccessfulSubmit>
+	);
+}
+
+const SwitchContainer = styled(Box)(() => ({
+	display: 'flex',
+	justifyContent: 'flex-end'
+}));
+
+export function getWPTASUncompletedForm(
+	location: Location,
+	initials: string,
+	id: string,
+	correctAnswerPositionOverrides: multipleChoiceAnswerPositionArray,
+	multiChoiceState: GenericState<boolean[]>,
+	questionResponsesState: GenericState<string[]>,
+	loading: boolean,
+	submitPressed: boolean,
+	errors: InputErrors,
+	initialsOnChange: (event: ChangeEvent<HTMLInputElement>) => void,
+	handleSubmit: (event: React.FormEvent<HTMLElement>, id: string) => void,
+	hasError: (e: InputErrors) => boolean,
+	setQuestionCorrect: (questionNum: number | Array<number>, val: boolean | Array<boolean>) => void,
+	comments: string, // Add comments parameter here
+  	handleCommentChange: (index: number, comment: string) => void
+) {
+	const { value: multiChoiceGiven, setValue: setMultiChoiceGiven } = multiChoiceState;
+	const { value: questionResponses, setValue: setQuestionResponses } = questionResponsesState;
+	const [isFirstDay, setIsFirstDay] = useState(false);
+
+	const [showCorrectAnswers, setShowCorrectAnswers] = useState<boolean>(true);
+
+	const { t } = useRosetty<LanguageDict>();
+
+	const setQuestionMultiChoiceGiven = (questionNum: number | Array<number>, val: boolean) => {
+		if (typeof questionNum === 'number') {
+			questionNum = [questionNum];
+		}
+		//used by all questions
+		const temp = [...multiChoiceGiven];
+		questionNum.forEach((num: number) => (temp[num - 1] = val));
+		setMultiChoiceGiven(temp);
+	};
+
+	const getResponseOnChange =
+		(questionNum: number) =>
+		(
+			//used by non-image questions
+			event: ChangeEvent<HTMLInputElement> | string
+		) => {
+			const temp = [...questionResponses];
+			temp[questionNum - 1] = typeof event === 'string' ? event : event.target.value;
+
+			setQuestionResponses(temp);
+		};
+
+	// function that runs when first day switch is used
+	function firstDayToggle(e: React.ChangeEvent<HTMLInputElement>) {
+		// sets a state value to allow the button to work
+		setIsFirstDay(e.target.checked);
+
+		// function to change the display of an element if it is not null.
+		const setDisplay = (display: string) => (id: string) => {
+			const element = document.getElementById(id);
+			element && (element.style.display = display);
+		};
+
+		// checks what value the button is on
+		if (e.target.checked) {
+			// if true removes the errors the final face/picture questions
+			// does this by giving an incorrect answer
+			setQuestionCorrect([8, 9, 10, 11, 12], [false, false, false, false, false]);
+			// hides their display from the page
+			['question8', 'question9', 'question10,11,12'].forEach(setDisplay('none'));
+		} else {
+			// if false turns their errors back on
+			errors.answerErrors.splice(7, 5, true, true, true, true, true);
+			// changes their display back to flex
+			['question8', 'question9', 'question10,11,12'].forEach(setDisplay('flex'));
+		}
+	}
+
+	return (
+		<React.Fragment>
+			<SwitchContainer id='firstDaySwitch' display='flex' alignItems='center'>
+				<span style={{ fontSize: '15px' }}>{t('screen.tests.wptas.firstTest')}</span>
+				<Switch color='primary' checked={isFirstDay} onChange={firstDayToggle} />
+			</SwitchContainer>
+			<CorrectAnswerBtn onClick={() => setShowCorrectAnswers(!showCorrectAnswers)}>
+				{showCorrectAnswers
+					? t('screen.tests.wptas.answer.hide', { plural: true })
+					: t('screen.tests.wptas.answer.show', { plural: true })}
+			</CorrectAnswerBtn>
+			<form>
+				<QuestionsContainerBox display='flex' flexDirection='column'>
+					{questions.map((question, i) => (
+						<WPTASQuestion
+							data={location.state['data']}
+							correctAnswerPositionOverride={correctAnswerPositionOverrides[i]}
+							key={`${question.questionNum}`}
+							question={question}
+							setQuestionMultiChoiceGiven={setQuestionMultiChoiceGiven}
+							setQuestionCorrect={setQuestionCorrect}
+							getResponseOnChange={getResponseOnChange}
+							showCorrectAnswer={showCorrectAnswers}
+							// Pass comment and handleCommentChange here
+							comment={comments[i]}
+							onCommentChange={(comment: string) => handleCommentChange(i, comment)}
+							//{...{ comment: comments[i], onCommentChange: (comment: string) => handleCommentChange(i, comment) }}
+							error_={
+								submitPressed &&
+								(typeof question.questionNum === 'number'
+									? errors.answerErrors[question.questionNum - 1]
+									: question.questionNum.some((q: number) => errors.answerErrors[q - 1]))
+							}
+						/>
+					))}
+					<Box style={{ marginTop: '6rem' }} display='flex' alignItems='center' justifyContent='flex-end'>
+						<TextField
+							style={{
+								width: 150,
+								marginRight: '2rem',
+								marginBottom: '0.5rem'
+							}}
+							value={initials}
+							onChange={initialsOnChange}
+							label={t('form.input.text.initials')}
+							placeholder=''
+							size='medium'
+							error={submitPressed && errors.initialsError}
+							helperText={
+								submitPressed && errors.initialsError
+									? t('error.mandatory.required', { str: 'field' })
+									: ''
+							}
+						/>
+						{loading ? (
+							<CircularProgress />
+						) : (
+							<ButtonFill
+								onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+									if (window.confirm(t('form.input.button.submit.confirm'))) handleSubmit(e, id);
+								}}
+								style={{ fontSize: '18px', width: 400 }}
+							>
+								{t('form.input.button.submit.label')}
+							</ButtonFill>
+						)}
+					</Box>
+				</QuestionsContainerBox>
+				<Box justifyContent='flex-end' style={{ padding: '0 20px 10px 20px' }}>
+					<FormHelperText style={{ textAlign: 'end' }} error={hasError(errors)}>
+						{hasError(errors) && submitPressed ? t('error.mandatory.completeAll', { str: 'field' }) : ''}
+					</FormHelperText>
+				</Box>
+			</form>
+		</React.Fragment>
+	);
+}
